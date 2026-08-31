@@ -13,7 +13,7 @@ from src.context.schema import TOTAL_FEATURE_DIM
 from src.policy.engine import PolicyEngine, PolicyConfig
 from src.models.linucb import LinUCBValueModel, LinUCBConfig
 from src.engine.two_step import TwoStepValueEngine, TwoStepEngineConfig
-from src.engine.decision import DecisionEngine, DecisionEngineConfig, DecisionResult
+from src.engine.decision import DecisionEngine, DecisionEngineConfig, DecisionResult, CANONICAL_TIE_BREAKER_PRIORITY
 
 
 @pytest.fixture
@@ -76,14 +76,12 @@ def test_correct_q2_plus_b_calculation(standard_case, standard_customer):
         
         assert np.isclose(final_q, q2 + bonus)
         if action in {ActionType.RETRY, ActionType.PAYMENT_UPDATE, ActionType.REMINDER, ActionType.WAIT}:
-            # Supported actions have positive LinUCB exploration bonus
             assert bonus > 0.0
 
 
 # 5 & 6 & 7. STOP participates in argmax and wins when all other scores are negative
 def test_stop_wins_when_all_other_actions_negative(standard_case, standard_customer):
     """5, 6, 7. Verify STOP (score=0.0, bonus=0.0) wins when all other recovery actions have negative value."""
-    # Setup large action costs and zero rewards so active actions have negative Q2
     from src.engine.costs import ActionCostCalculator, CostConfig
     from src.engine.rewards import ActionRewardCalculator, RewardConfig
 
@@ -105,7 +103,7 @@ def test_stop_wins_when_all_other_actions_negative(standard_case, standard_custo
     
     two_step = TwoStepValueEngine(cost_calculator=high_cost, reward_calculator=zero_reward)
     decision_engine = DecisionEngine(
-        config=DecisionEngineConfig(alpha=0.0),  # No exploration bonus
+        config=DecisionEngineConfig(alpha=0.0),
         two_step_engine=two_step,
     )
 
@@ -131,21 +129,81 @@ def test_escalate_has_zero_exploration_bonus(standard_case, standard_customer):
         assert result.estimation_methods[ActionType.ESCALATE].value == "heuristic"
 
 
-# 9 & 10. Deterministic tie-breaking
-def test_deterministic_tie_breaking(standard_case, standard_customer):
-    """9 & 10. Verify deterministic tie-breaker priority order when scores are identical."""
-    # When all actions have identical score (e.g. 0.0), RETRY has highest priority in tie-breaker
+# 9. Explicit forced tie-breaking verification
+def test_forced_tie_breaking_canonical_priority(standard_case, standard_customer):
+    """9. Verify deterministic tie-breaking priority when multiple actions have exact equal final scores.
+    Canonical priority: RETRY > PAYMENT_UPDATE > REMINDER > WAIT > ESCALATE > STOP.
+    """
+    from src.engine.two_step import TwoStepScoringResult
+    from src.audit.schema import EstimationMethod
+    from src.models.transition import RecoveryNextState
+
+    class ForcedTieTwoStepEngine(TwoStepValueEngine):
+        def evaluate_allowed_actions(self, allowed_actions, case, customer):
+            return {
+                a: TwoStepScoringResult(
+                    action=a,
+                    estimation_method=EstimationMethod.CONTEXTUAL_BANDIT if a != ActionType.ESCALATE else EstimationMethod.HEURISTIC,
+                    q1_base_value=100.0,
+                    immediate_reward=100.0,
+                    action_cost=0.0,
+                    transition_probabilities={RecoveryNextState.RECOVERED: 1.0, RecoveryNextState.STILL_AT_RISK: 0.0, RecoveryNextState.UNRECOVERABLE: 0.0},
+                    future_v1_values={RecoveryNextState.RECOVERED: 0.0, RecoveryNextState.STILL_AT_RISK: 0.0, RecoveryNextState.UNRECOVERABLE: 0.0},
+                    expected_future_value=0.0,
+                    discounted_future_value=0.0,
+                    q2_sequence_value=100.0,
+                )
+                for a in allowed_actions
+            }
+
+    # With alpha=0.0, all actions have final_q = 100.0
+    tie_engine = DecisionEngine(
+        config=DecisionEngineConfig(alpha=0.0),
+        two_step_engine=ForcedTieTwoStepEngine(),
+    )
+
+    # 1. RETRY and PAYMENT_UPDATE tie -> RETRY wins
+    res1 = tie_engine.decide(standard_case, standard_customer, candidate_actions=[ActionType.RETRY, ActionType.PAYMENT_UPDATE])
+    assert res1.final_q_values[ActionType.RETRY] == res1.final_q_values[ActionType.PAYMENT_UPDATE]
+    assert res1.selected_action == ActionType.RETRY
+
+    # 2. PAYMENT_UPDATE and REMINDER tie -> PAYMENT_UPDATE wins
+    res2 = tie_engine.decide(standard_case, standard_customer, candidate_actions=[ActionType.PAYMENT_UPDATE, ActionType.REMINDER])
+    assert res2.final_q_values[ActionType.PAYMENT_UPDATE] == res2.final_q_values[ActionType.REMINDER]
+    assert res2.selected_action == ActionType.PAYMENT_UPDATE
+
+    # 3. REMINDER and WAIT tie -> REMINDER wins
+    res3 = tie_engine.decide(standard_case, standard_customer, candidate_actions=[ActionType.REMINDER, ActionType.WAIT])
+    assert res3.selected_action == ActionType.REMINDER
+
+    # 4. WAIT and ESCALATE tie -> WAIT wins
+    res4 = tie_engine.decide(standard_case, standard_customer, candidate_actions=[ActionType.WAIT, ActionType.ESCALATE])
+    assert res4.selected_action == ActionType.WAIT
+
+
+# 10. Empty candidate actions integrity: NO injected STOP
+def test_empty_candidate_actions_not_injected_stop(standard_case, standard_customer):
+    """10. CRITICAL: Verify candidate_actions=[] produces empty allowed set and does NOT inject STOP."""
     decision_engine = DecisionEngine()
-    result1 = decision_engine.decide(standard_case, standard_customer, decision_id="DEC-DET-01")
-    result2 = decision_engine.decide(standard_case, standard_customer, decision_id="DEC-DET-01")
+    result = decision_engine.decide(
+        case=standard_case,
+        customer=standard_customer,
+        candidate_actions=[],
+    )
 
-    assert result1.selected_action == result2.selected_action
-    assert result1.idempotency_key == result2.idempotency_key
+    assert result.allowed_actions == []
+    assert result.q2_values == {}
+    assert result.exploration_bonuses == {}
+    assert result.final_q_values == {}
+    assert result.selected_action is None
+    assert result.idempotency_key is None
+    assert result.audit_record.allowed_actions == []
+    assert result.audit_record.selected_action is None
 
 
-# 11 & 12 & 13 & 14. Audit record and 8 version dimensions propagation
+# 11 & 12 & 13. Audit record and 8 version dimensions propagation
 def test_audit_record_population_and_all_8_versions(standard_case, standard_customer):
-    """11-14. Verify full audit record is populated with all 8 mandatory version dimensions."""
+    """11-13. Verify full audit record is populated with all 8 mandatory version dimensions."""
     decision_engine = DecisionEngine()
     result = decision_engine.decide(
         case=standard_case,
@@ -168,13 +226,13 @@ def test_audit_record_population_and_all_8_versions(standard_case, standard_cust
     assert audit.propensity_model_version == "prop_v5.0.0"
     assert audit.fairness_policy_version == "fair_v5.0.0"
     assert audit.message_policy_version == "msg_v5.0.0"
-    assert audit.feature_schema_version == "feat_v1.1.0"
+    assert audit.feature_schema_version == "v1.1.0"
     assert audit.exploration_config_version == "exp_v5.0.0"
 
 
-# 15. Idempotency key preservation
+# 14. Idempotency key preservation
 def test_idempotency_key_preservation(standard_case, standard_customer):
-    """15. Verify 4-tuple key structure: case_id:decision_id:action:attempt."""
+    """14. Verify 4-tuple key structure: case_id:decision_id:action:attempt."""
     decision_engine = DecisionEngine()
     result = decision_engine.decide(
         case=standard_case,

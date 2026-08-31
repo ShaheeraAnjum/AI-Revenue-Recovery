@@ -20,7 +20,7 @@ class VersionConfig(BaseModel):
     propensity_model_version: str = "prop_v5.0.0"
     fairness_policy_version: str = "fair_v5.0.0"
     message_policy_version: str = "msg_v5.0.0"
-    feature_schema_version: str = "feat_v1.1.0"
+    feature_schema_version: str = "v1.1.0"
     exploration_config_version: str = "exp_v5.0.0"
 
 
@@ -69,7 +69,7 @@ class DecisionAuditRecord(BaseModel):
     confidences: Dict[ActionType, float]
     
     # Selected action
-    selected_action: ActionType
+    selected_action: Optional[ActionType] = None
     random_seed: Optional[int] = None
     
     # The 8 mandatory version dimensions

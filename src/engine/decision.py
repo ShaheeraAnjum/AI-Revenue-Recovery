@@ -18,7 +18,6 @@ from src.audit.schema import (
     VersionConfig,
 )
 
-# Canonical tie-breaking priority order
 CANONICAL_TIE_BREAKER_PRIORITY: List[ActionType] = [
     ActionType.RETRY,
     ActionType.PAYMENT_UPDATE,
@@ -41,8 +40,8 @@ class DecisionResult(BaseModel):
     decision_id: str
     case_id: str
     customer_id: str
-    selected_action: ActionType
-    idempotency_key: str
+    selected_action: Optional[ActionType] = None
+    idempotency_key: Optional[str] = None
     q2_values: Dict[ActionType, float]
     exploration_bonuses: Dict[ActionType, float]
     final_q_values: Dict[ActionType, float]
@@ -53,14 +52,7 @@ class DecisionResult(BaseModel):
 
 
 class DecisionEngine:
-    """Decision Engine executing the frozen current-action selection pipeline:
-    1. Candidate Action Generation
-    2. Policy / Safety Filtering (Pre-scoring)
-    3. Two-Step Sequence Value Evaluation Q2(s, a) for A_allowed only
-    4. Current-Layer LinUCB Exploration Bonus Calculation B(x, a)
-    5. Single Argmax Selection: a* = argmax_{a in A_allowed} [ Q2(s, a) + B(x, a) ]
-    6. Full Audit Trail Recording with 8 Version Dimensions
-    """
+    """Decision Engine executing the frozen current-action selection pipeline."""
 
     def __init__(
         self,
@@ -104,25 +96,74 @@ class DecisionEngine:
             customer=customer,
             candidate_actions=candidates,
         )
-        allowed = policy_decision.allowed_actions
-        prohibited = policy_decision.prohibited_actions
-
-        # If no actions allowed, fallback to STOP as terminal safeguard
-        if not allowed:
-            allowed = [ActionType.STOP]
+        allowed = list(policy_decision.allowed_actions)
+        prohibited = dict(policy_decision.prohibited_actions)
 
         # 3. Context extraction
         context = self.context_builder.build_context(case, customer)
 
-        # 4. Evaluate Q2 sequence values strictly for allowed actions
+        # 4. Handle empty allowed set without injecting actions
+        if not allowed:
+            action_details: Dict[ActionType, ActionScoringDetail] = {}
+            for a_proh, reason in prohibited.items():
+                action_details[a_proh] = ActionScoringDetail(
+                    action=a_proh,
+                    is_allowed=False,
+                    rejection_reason=reason,
+                )
+
+            audit_record = DecisionAuditRecord(
+                decision_id=d_id,
+                case_id=case.case_id,
+                customer_id=customer.customer_id,
+                context_features=context.to_dict(),
+                feature_vector=list(context.feature_vector),
+                candidate_actions=candidates,
+                allowed_actions=[],
+                prohibited_actions=prohibited,
+                action_details=action_details,
+                q1_values={},
+                q2_values={},
+                exploration_bonuses={},
+                final_q_values={},
+                estimation_methods={},
+                confidences={},
+                selected_action=None,
+                random_seed=random_seed,
+                policy_version=self.policy_engine.config.policy_version,
+                value_model_version=self.linucb.version,
+                transition_model_version=self.two_step_engine.transition_model.version,
+                propensity_model_version=self.versions.propensity_model_version,
+                fairness_policy_version=self.versions.fairness_policy_version,
+                message_policy_version=self.versions.message_policy_version,
+                feature_schema_version=context.feature_schema_version,
+                exploration_config_version=self.versions.exploration_config_version,
+            )
+
+            return DecisionResult(
+                decision_id=d_id,
+                case_id=case.case_id,
+                customer_id=customer.customer_id,
+                selected_action=None,
+                idempotency_key=None,
+                q2_values={},
+                exploration_bonuses={},
+                final_q_values={},
+                estimation_methods={},
+                allowed_actions=[],
+                prohibited_actions=prohibited,
+                audit_record=audit_record,
+            )
+
+        # 5. Evaluate Q2 sequence values strictly for allowed actions
         q2_results: Dict[ActionType, TwoStepScoringResult] = self.two_step_engine.evaluate_allowed_actions(
             allowed_actions=allowed,
             case=case,
             customer=customer,
         )
 
-        # 5. Compute current-layer exploration bonus B(x, a) and final scores
-        action_details: Dict[ActionType, ActionScoringDetail] = {}
+        # 6. Compute current-layer exploration bonus B(x, a) and final scores
+        action_details = {}
         q1_values: Dict[ActionType, float] = {}
         q2_values: Dict[ActionType, float] = {}
         exploration_bonuses: Dict[ActionType, float] = {}
@@ -174,7 +215,6 @@ class DecisionEngine:
                 confidence=conf,
             )
 
-        # Also document prohibited actions in action_details
         for a_proh, reason in prohibited.items():
             action_details[a_proh] = ActionScoringDetail(
                 action=a_proh,
@@ -182,11 +222,10 @@ class DecisionEngine:
                 rejection_reason=reason,
             )
 
-        # 6. Final Argmax Selection over allowed actions with deterministic tie-breaking
+        # 7. Final Argmax Selection over allowed actions with deterministic tie-breaking
         best_score = -float("inf")
-        selected_action = ActionType.STOP
+        selected_action = allowed[0]
 
-        # Sort allowed actions by tie-breaker priority
         priority_map = {act: idx for idx, act in enumerate(self.config.tie_breaker_priority)}
         sorted_allowed = sorted(allowed, key=lambda act: priority_map.get(act, 999))
 
@@ -196,7 +235,7 @@ class DecisionEngine:
                 best_score = score
                 selected_action = a
 
-        # 7. Form exact idempotency key
+        # 8. Form exact idempotency key
         attempt = case.retry_attempt_count + case.reminder_count + case.escalation_count + 1
         idempotency_key = IdempotencyKey(
             case_id=case.case_id,
@@ -205,7 +244,7 @@ class DecisionEngine:
             attempt=attempt,
         )
 
-        # 8. Construct Audit Record with all 8 version dimensions
+        # 9. Construct Audit Record with all 8 version dimensions
         audit_record = DecisionAuditRecord(
             decision_id=d_id,
             case_id=case.case_id,
