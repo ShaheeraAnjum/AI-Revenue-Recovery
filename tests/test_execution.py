@@ -1,4 +1,6 @@
 """Comprehensive unit tests for Idempotent Action Executor covering all Phase 7 criteria."""
+import time
+import concurrent.futures
 import pytest
 from src.domain.actions import ActionType
 from src.domain.case import (
@@ -140,7 +142,57 @@ def test_idempotency_duplicate_execution_returns_cached_result(exec_case, exec_c
     assert res2.idempotency_key == res1.idempotency_key
 
 
-# 12. Conflict handling on different payload
+# Real Concurrency Regression Test
+def test_concurrent_same_key_execution_adapter_called_exactly_once(exec_case, exec_customer):
+    """MANDATORY CONCURRENCY TEST: Verify that concurrent callers using identical idempotency key execute adapter exactly once."""
+    class CountingRetryAdapter(BaseActionAdapter):
+        def __init__(self):
+            self.execution_count = 0
+            self._lock = time.sleep
+
+        def execute(self, case, customer):
+            self.execution_count += 1
+            time.sleep(0.05)  # Simulate non-trivial external gateway latency
+            return AdapterResponse(
+                status=ExecutionStatus.SUCCESS,
+                reference_id=f"tx_concurrent_{self.execution_count}",
+                details={"charged": float(case.amount_at_risk)},
+            )
+
+    counting_adapter = CountingRetryAdapter()
+    executor = ActionExecutor(adapters={ActionType.RETRY: counting_adapter})
+
+    # Dispatch 10 simultaneous threads with the EXACT SAME (case_id, decision_id, action, attempt)
+    num_threads = 10
+    with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as pool:
+        futures = [
+            pool.submit(
+                executor.execute,
+                ActionType.RETRY,
+                exec_case,
+                exec_customer,
+                "DEC-CONCURRENT-01",
+                1,
+            )
+            for _ in range(num_threads)
+        ]
+        results = [f.result() for f in futures]
+
+    # 1. Adapter execution count MUST be exactly 1
+    assert counting_adapter.execution_count == 1
+
+    # 2. All 10 results must share the exact same reference_id
+    ref_ids = {r.reference_id for r in results}
+    assert len(ref_ids) == 1
+    assert "tx_concurrent_1" in ref_ids
+
+    # 3. Exactly 1 result is the initial execution (is_duplicate=False) and 9 are duplicates (is_duplicate=True)
+    duplicates = [r.is_duplicate for r in results]
+    assert duplicates.count(False) == 1
+    assert duplicates.count(True) == (num_threads - 1)
+
+
+# Conflict handling on different payload
 def test_idempotency_conflict_detection(exec_case, exec_customer):
     """12. Verify submitting same key with materially different payload raises IdempotencyConflictError."""
     executor = ActionExecutor()
@@ -154,7 +206,22 @@ def test_idempotency_conflict_detection(exec_case, exec_customer):
         executor.execute(ActionType.RETRY, conflicting_case, exec_customer, "DEC-CONF", 1)
 
 
-# 13 & 14. Key uniqueness across attempts and actions
+# Concurrent Conflict Detection
+def test_concurrent_same_key_conflicting_payload_detection(exec_case, exec_customer):
+    """Verify concurrent conflict detection if another thread arrives with conflicting payload."""
+    executor = ActionExecutor()
+    conflicting_case = exec_case.model_copy(deep=True)
+    conflicting_case.amount_at_risk = 50000.0
+
+    # First call completes
+    executor.execute(ActionType.RETRY, exec_case, exec_customer, "DEC-CON-RACE", 1)
+
+    # Conflicting call
+    with pytest.raises(IdempotencyConflictError):
+        executor.execute(ActionType.RETRY, conflicting_case, exec_customer, "DEC-CON-RACE", 1)
+
+
+# Key uniqueness across attempts and actions
 def test_different_attempt_and_action_keys(exec_case, exec_customer):
     """13, 14. Verify different attempts and actions produce distinct idempotency keys."""
     executor = ActionExecutor()
@@ -167,17 +234,17 @@ def test_different_attempt_and_action_keys(exec_case, exec_customer):
     assert res_att1.idempotency_key != res_act2.idempotency_key
 
 
-# 15. Execution does not imply final recovery
+# Execution does not imply final recovery
 def test_execution_is_strictly_provisional(exec_case, exec_customer):
     """15. Verify execution result is marked provisional and case state is not modified to final recovery."""
     executor = ActionExecutor()
     res = executor.execute(ActionType.RETRY, exec_case, exec_customer, "DEC-PROV", 1)
 
     assert res.is_provisional is True
-    assert exec_case.state == CaseState.ACTIVE  # Not marked as RESOLVED_RECOVERED
+    assert exec_case.state == CaseState.ACTIVE
 
 
-# 17. Adapter error / decline handling
+# Adapter error / decline handling
 def test_adapter_decline_and_timeout_handling(exec_case, exec_customer):
     """17. Verify decline and timeout statuses are preserved in execution result."""
     class DecliningAdapter(BaseActionAdapter):

@@ -73,7 +73,7 @@ class ActionExecutor:
         decision_id: str,
         attempt: int,
     ) -> ExecutionResult:
-        """Execute selected action safely under exact idempotency key."""
+        """Execute selected action safely under atomic idempotency synchronization."""
         if action not in self.adapters:
             raise ValueError(f"Unsupported action for execution: {action}")
 
@@ -97,58 +97,28 @@ class ActionExecutor:
         }
         payload_hash = compute_payload_hash(payload_dict)
 
-        # 3. Check idempotency store for existing execution
-        existing = self.store.get(key_str)
-        if existing is not None:
-            if existing.payload_hash != payload_hash:
-                raise IdempotencyConflictError(
-                    f"Idempotency conflict: key '{key_str}' previously submitted with different payload"
-                )
-            # Return previously recorded execution result marked as DUPLICATE
-            return ExecutionResult(
-                case_id=case.case_id,
-                decision_id=decision_id,
-                action=action,
-                attempt=attempt,
-                idempotency_key=key_str,
-                execution_status=ExecutionStatus.DUPLICATE,
-                executor_version=self.version,
-                adapter_version=DEFAULT_ADAPTER_VERSION,
-                reference_id=existing.reference_id,
-                error_code=existing.error_code,
-                is_duplicate=True,
-                is_provisional=True,
-                details=existing.response_data,
-            )
-
-        # 4. Dispatch to appropriate adapter
+        # 3. Atomically execute once under per-key synchronization
         adapter = self.adapters[action]
-        adapter_resp = adapter.execute(case, customer)
-
-        # 5. Record result in idempotency store
-        record = IdempotencyRecord(
+        record, is_duplicate = self.store.execute_once(
             key=key_str,
             payload_hash=payload_hash,
-            execution_status=adapter_resp.status,
-            response_data=adapter_resp.details,
-            reference_id=adapter_resp.reference_id,
-            error_code=adapter_resp.error_code,
+            execution_fn=lambda: adapter.execute(case, customer),
         )
-        self.store.put(record)
 
-        # 6. Return fresh execution result (provisional observation)
+        status = ExecutionStatus.DUPLICATE if is_duplicate else record.execution_status
+
         return ExecutionResult(
             case_id=case.case_id,
             decision_id=decision_id,
             action=action,
             attempt=attempt,
             idempotency_key=key_str,
-            execution_status=adapter_resp.status,
+            execution_status=status,
             executor_version=self.version,
-            adapter_version=adapter_resp.adapter_version,
-            reference_id=adapter_resp.reference_id,
-            error_code=adapter_resp.error_code,
-            is_duplicate=False,
+            adapter_version=record.adapter_version,
+            reference_id=record.reference_id,
+            error_code=record.error_code,
+            is_duplicate=is_duplicate,
             is_provisional=True,
-            details=adapter_resp.details,
+            details=record.response_data,
         )
