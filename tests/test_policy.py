@@ -192,7 +192,7 @@ def test_communication_consent_semantics(standard_case, standard_customer):
     assert ActionType.REMINDER not in decision.allowed_actions
     assert ActionType.PAYMENT_UPDATE not in decision.allowed_actions
     assert "consent_missing" in decision.prohibited_actions[ActionType.REMINDER]
-    assert "consent_missing" in decision.prohibited_actions[ActionType.PAYMENT_UPDATE]
+    assert "payment_update_consent_missing" in decision.prohibited_actions[ActionType.PAYMENT_UPDATE]
 
     # Email only opt-in -> allowed
     standard_customer.opt_in_email = True
@@ -302,3 +302,22 @@ def test_policy_version_propagation(standard_case, standard_customer):
     engine = PolicyEngine(PolicyConfig(policy_version="policy_v5.2.1-custom"))
     decision = engine.evaluate(standard_case, standard_customer)
     assert decision.policy_version == "policy_v5.2.1-custom"
+
+
+# 12. Explicit empty and custom candidate list handling
+def test_explicit_empty_candidate_actions(standard_case, standard_customer):
+    """15. Test explicit empty candidate_actions=[] is preserved and not replaced by generator."""
+    engine = PolicyEngine()
+    decision = engine.evaluate(standard_case, standard_customer, candidate_actions=[])
+    assert decision.candidate_actions == []
+    assert decision.allowed_actions == []
+    assert decision.prohibited_actions == {}
+
+
+def test_custom_subset_candidate_actions(standard_case, standard_customer):
+    """16. Test explicit custom candidate action subset is evaluated without expansion."""
+    engine = PolicyEngine()
+    custom_candidates = [ActionType.WAIT, ActionType.STOP]
+    decision = engine.evaluate(standard_case, standard_customer, candidate_actions=custom_candidates)
+    assert decision.candidate_actions == custom_candidates
+    assert set(decision.allowed_actions).issubset(set(custom_candidates))

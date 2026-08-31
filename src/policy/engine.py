@@ -46,8 +46,12 @@ class PolicyEngine:
     ) -> PolicyDecision:
         """Deterministically evaluate candidate actions against compliance rules.
         Does NOT score, rank, compute Q-values, or call LLMs.
+        Preserves explicitly passed candidate sets (e.g. empty list [] is preserved).
         """
-        candidates = candidate_actions or self.generator.generate_candidates(case, customer)
+        if candidate_actions is None:
+            candidates = self.generator.generate_candidates(case, customer)
+        else:
+            candidates = list(candidate_actions)
         
         allowed: List[ActionType] = []
         prohibited: Dict[ActionType, str] = {}
