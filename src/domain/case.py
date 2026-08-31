@@ -1,4 +1,4 @@
-"""Recovery case and customer entities."""
+"""Recovery case and customer entities with PCI boundary safety and escalation tracking."""
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional, NamedTuple
@@ -38,7 +38,9 @@ class PaymentMethodType(str, Enum):
 
 
 class CustomerProfile(BaseModel):
-    """Customer attributes and compliance consent."""
+    """Customer attributes and compliance consent.
+    NOTE: Never stores raw PAN/CVV payment credentials (PCI compliance boundary).
+    """
     customer_id: str
     customer_value: float = Field(..., ge=0.0, description="Historical customer lifetime value or ARR contribution")
     subscription_age_days: int = Field(..., ge=0, description="Age of subscription in days")
@@ -52,7 +54,7 @@ class CustomerProfile(BaseModel):
 
 
 class RecoveryCase(BaseModel):
-    """Individual recovery case tracking."""
+    """Individual recovery case tracking with state, attempts, and PCI tokenization metadata."""
     case_id: str
     customer_id: str
     amount_at_risk: float = Field(..., gt=0.0, description="Outstanding amount needing recovery")
@@ -61,10 +63,12 @@ class RecoveryCase(BaseModel):
     state: CaseState = CaseState.DETECTED
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    retry_attempt_count: int = Field(default=0, ge=0)
-    reminder_count: int = Field(default=0, ge=0)
-    last_action: Optional[ActionType] = None
+    retry_attempt_count: int = Field(default=0, ge=0, description="Number of gateway retry attempts executed")
+    reminder_count: int = Field(default=0, ge=0, description="Number of customer reminder messages sent")
+    escalation_count: int = Field(default=0, ge=0, description="Number of human escalation actions executed")
     days_waiting: int = Field(default=0, ge=0, description="Number of consecutive days in WAIT state")
+    is_pci_tokenized: bool = Field(default=True, description="True if payment method is backed by a secure PCI token")
+    last_action: Optional[ActionType] = None
 
 
 class IdempotencyKey(NamedTuple):
