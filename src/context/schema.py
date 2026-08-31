@@ -26,7 +26,7 @@ CATEGORICAL_FEATURE_NAMES: List[str] = (
 # Total feature vector names in canonical deterministic order (6 + 14 = 20 dimensions)
 CANONICAL_FEATURE_NAMES: List[str] = NUMERIC_FEATURE_NAMES + CATEGORICAL_FEATURE_NAMES
 TOTAL_FEATURE_DIM: int = len(CANONICAL_FEATURE_NAMES)
-DEFAULT_FEATURE_SCHEMA_VERSION: str = "v1.1.0"
+DEFAULT_FEATURE_SCHEMA_VERSION: str = "feat_v1.1.0"
 
 
 class FeatureScaleConfig(BaseModel):

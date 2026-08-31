@@ -1,4 +1,4 @@
-"""Two-step sequence value, reward, and dynamic cost engines."""
+"""Two-step sequence value, reward, dynamic cost, and decision engines."""
 from src.engine.costs import CostConfig, ActionCostCalculator, DEFAULT_COST_CONFIG_VERSION
 from src.engine.rewards import RewardConfig, ActionRewardCalculator, DEFAULT_REWARD_CONFIG_VERSION
 from src.engine.heuristic import EscalateHeuristicConfig, EscalateHeuristicModel, DEFAULT_HEURISTIC_VERSION
@@ -7,6 +7,12 @@ from src.engine.two_step import (
     TwoStepScoringResult,
     TwoStepValueEngine,
     DEFAULT_ENGINE_CONFIG_VERSION,
+)
+from src.engine.decision import (
+    DecisionEngineConfig,
+    DecisionResult,
+    DecisionEngine,
+    CANONICAL_TIE_BREAKER_PRIORITY,
 )
 
 __all__ = [
@@ -23,4 +29,8 @@ __all__ = [
     "TwoStepScoringResult",
     "TwoStepValueEngine",
     "DEFAULT_ENGINE_CONFIG_VERSION",
+    "DecisionEngineConfig",
+    "DecisionResult",
+    "DecisionEngine",
+    "CANONICAL_TIE_BREAKER_PRIORITY",
 ]
