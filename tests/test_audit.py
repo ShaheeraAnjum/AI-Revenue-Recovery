@@ -8,17 +8,21 @@ from src.audit.schema import (
     DecisionAuditRecord,
     ActionScoringDetail,
 )
+from src.context.schema import TOTAL_FEATURE_DIM
 
 
 def test_decision_audit_record_all_8_version_fields():
     """Verify that all 8 version dimensions are required and serialized in DecisionAuditRecord."""
+    dummy_vector = [0.0] * TOTAL_FEATURE_DIM
+    dummy_vector[0] = 0.428  # amount_at_risk_norm
+
     record = DecisionAuditRecord(
         decision_id="DEC-999",
         case_id="CASE-999",
         customer_id="CUST-999",
         timestamp=datetime.now(timezone.utc),
         context_features={"amount_at_risk": 4280.0, "days_overdue": 2.0},
-        feature_vector=[4280.0, 0.0, 2.0, 5000.0, 120.0, 0.9, 1.0, 0.0],
+        feature_vector=dummy_vector,
         candidate_actions=[ActionType.RETRY, ActionType.WAIT, ActionType.ESCALATE, ActionType.STOP],
         allowed_actions=[ActionType.RETRY, ActionType.WAIT, ActionType.STOP],
         prohibited_actions={ActionType.ESCALATE: "Max escalation policy reached"},
@@ -63,7 +67,7 @@ def test_decision_audit_record_all_8_version_fields():
         propensity_model_version="prop_v5.0.0",
         fairness_policy_version="fair_v5.0.0",
         message_policy_version="msg_v5.0.0",
-        feature_schema_version="feat_v1.0.0",
+        feature_schema_version="feat_v1.1.0",
         exploration_config_version="exp_v5.0.0",
     )
 
@@ -75,9 +79,10 @@ def test_decision_audit_record_all_8_version_fields():
     assert data["propensity_model_version"] == "prop_v5.0.0"
     assert data["fairness_policy_version"] == "fair_v5.0.0"
     assert data["message_policy_version"] == "msg_v5.0.0"
-    assert data["feature_schema_version"] == "feat_v1.0.0"
+    assert data["feature_schema_version"] == "feat_v1.1.0"
     assert data["exploration_config_version"] == "exp_v5.0.0"
     
     assert data["selected_action"] == "RETRY"
     assert data["random_seed"] == 42
     assert data["estimation_methods"]["RETRY"] == "contextual_bandit"
+    assert len(data["feature_vector"]) == TOTAL_FEATURE_DIM
