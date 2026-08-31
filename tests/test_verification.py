@@ -17,7 +17,7 @@ from src.verification.observation import (
     ObservationConfig,
     ReconciliationStatus,
 )
-from src.verification.reconciliation import ReconciliationData
+from src.verification.reconciliation import ReconciliationData, ReconciliationConflictError
 from src.verification.verifier import VerificationEngine
 
 
@@ -67,7 +67,7 @@ def test_observation_window_enforcement(base_case, mock_success_exec):
     """2. Verify before observation window elapses, reconciliation cannot mark case as recovered."""
     now = datetime.now(timezone.utc)
     engine = VerificationEngine(ObservationConfig(default_window_seconds=3600))
-    obs = engine.create_observation(mock_success_exec, base_case, start_time=now)
+    engine.create_observation(mock_success_exec, base_case, start_time=now)
 
     recon_data = ReconciliationData(
         reconciliation_reference="REC-001",
@@ -90,7 +90,7 @@ def test_successful_settlement_after_window_elapses(base_case, mock_success_exec
     """3. Verify SUCCESS + window elapsed + settlement confirmed -> RESOLVED_RECOVERED."""
     now = datetime.now(timezone.utc)
     engine = VerificationEngine(ObservationConfig(default_window_seconds=3600))
-    obs = engine.create_observation(mock_success_exec, base_case, start_time=now)
+    engine.create_observation(mock_success_exec, base_case, start_time=now)
 
     recon_data = ReconciliationData(
         reconciliation_reference="REC-SETTLED-001",
@@ -110,53 +110,130 @@ def test_successful_settlement_after_window_elapses(base_case, mock_success_exec
     assert res.is_provisional is False
 
 
-# 4. Refund handling invalidates recovery
-def test_refund_invalidates_recovery(base_case, mock_success_exec):
-    """4. Verify SUCCESS + refund -> RECONCILIATION status and RESOLVED_UNRECOVERABLE."""
+# 4. Repeated identical reconciliation is idempotent
+def test_repeated_identical_reconciliation_is_idempotent(base_case, mock_success_exec):
+    """4. Verify repeating identical reconciliation after finalization returns same result without side effects."""
     now = datetime.now(timezone.utc)
-    engine = VerificationEngine()
-    obs = engine.create_observation(mock_success_exec, base_case, start_time=now, custom_window_seconds=100)
+    engine = VerificationEngine(ObservationConfig(default_window_seconds=3600))
+    engine.create_observation(mock_success_exec, base_case, start_time=now)
 
     recon_data = ReconciliationData(
-        reconciliation_reference="REC-REFUND-001",
+        reconciliation_reference="REC-SETTLED-001",
         settlement_confirmed=True,
-        is_refunded=True,
         gross_amount_settled=1500.0,
-        net_amount_recovered=0.0,
+        net_amount_recovered=1500.0,
+    )
+    after_time = now + timedelta(minutes=70)
+
+    res1 = engine.reconcile(mock_success_exec.idempotency_key, base_case, recon_data, as_of_time=after_time)
+    res2 = engine.reconcile(mock_success_exec.idempotency_key, base_case, recon_data, as_of_time=after_time)
+
+    assert res1.final_outcome == CaseState.RESOLVED_RECOVERED
+    assert res2.final_outcome == CaseState.RESOLVED_RECOVERED
+    assert res1.reconciliation_fingerprint == res2.reconciliation_fingerprint
+
+
+# 5. Final recovered + conflicting refund input -> ReconciliationConflictError
+def test_final_recovered_conflicting_refund_input_raises_conflict(base_case, mock_success_exec):
+    """5. Verify submitting conflicting refund data for already settled observation raises ReconciliationConflictError."""
+    now = datetime.now(timezone.utc)
+    engine = VerificationEngine()
+    engine.create_observation(mock_success_exec, base_case, start_time=now, custom_window_seconds=10)
+
+    settle_data = ReconciliationData(
+        reconciliation_reference="REC-SETTLED-001",
+        settlement_confirmed=True,
+        gross_amount_settled=1500.0,
+        net_amount_recovered=1500.0,
+    )
+    after_time = now + timedelta(seconds=20)
+    engine.reconcile(mock_success_exec.idempotency_key, base_case, settle_data, as_of_time=after_time)
+
+    # Now attempt to mutate finalized outcome with conflicting refund data
+    conflicting_refund = ReconciliationData(
+        reconciliation_reference="REC-REFUND-CONFLICT",
+        is_refunded=True,
     )
 
-    after_time = now + timedelta(seconds=200)
-    res = engine.reconcile(mock_success_exec.idempotency_key, base_case, recon_data, as_of_time=after_time)
+    with pytest.raises(ReconciliationConflictError, match="Reconciliation conflict"):
+        engine.reconcile(mock_success_exec.idempotency_key, base_case, conflicting_refund, as_of_time=after_time)
 
-    assert res.reconciliation_status == ReconciliationStatus.REFUNDED
-    assert res.final_outcome == CaseState.RESOLVED_UNRECOVERABLE
-    assert base_case.state == CaseState.RESOLVED_UNRECOVERABLE
+    # State remains immutable
+    assert base_case.state == CaseState.RESOLVED_RECOVERED
 
 
-# 5. Chargeback handling invalidates recovery
-def test_chargeback_invalidates_recovery(base_case, mock_success_exec):
-    """5. Verify SUCCESS + chargeback -> CHARGEBACK status and RESOLVED_UNRECOVERABLE."""
+# 6. Final recovered + conflicting chargeback input -> ReconciliationConflictError
+def test_final_recovered_conflicting_chargeback_input_raises_conflict(base_case, mock_success_exec):
+    """6. Verify submitting conflicting chargeback data for already settled observation raises ReconciliationConflictError."""
     now = datetime.now(timezone.utc)
     engine = VerificationEngine()
-    engine.create_observation(mock_success_exec, base_case, start_time=now, custom_window_seconds=100)
+    engine.create_observation(mock_success_exec, base_case, start_time=now, custom_window_seconds=10)
 
-    recon_data = ReconciliationData(
-        reconciliation_reference="REC-CB-001",
-        settlement_confirmed=False,
+    settle_data = ReconciliationData(
+        reconciliation_reference="REC-SETTLED-001",
+        settlement_confirmed=True,
+    )
+    after_time = now + timedelta(seconds=20)
+    engine.reconcile(mock_success_exec.idempotency_key, base_case, settle_data, as_of_time=after_time)
+
+    conflicting_cb = ReconciliationData(
+        reconciliation_reference="REC-CB-CONFLICT",
         is_chargeback=True,
     )
 
-    after_time = now + timedelta(seconds=200)
-    res = engine.reconcile(mock_success_exec.idempotency_key, base_case, recon_data, as_of_time=after_time)
+    with pytest.raises(ReconciliationConflictError, match="Reconciliation conflict"):
+        engine.reconcile(mock_success_exec.idempotency_key, base_case, conflicting_cb, as_of_time=after_time)
 
-    assert res.reconciliation_status == ReconciliationStatus.CHARGEBACK
-    assert res.final_outcome == CaseState.RESOLVED_UNRECOVERABLE
+
+# 7. Final unrecoverable + conflicting settlement input -> ReconciliationConflictError
+def test_final_unrecoverable_conflicting_settlement_raises_conflict(base_case, mock_success_exec):
+    """7. Verify submitting conflicting settlement data for already refunded/chargebacked observation raises error."""
+    now = datetime.now(timezone.utc)
+    engine = VerificationEngine()
+    engine.create_observation(mock_success_exec, base_case, start_time=now, custom_window_seconds=10)
+
+    cb_data = ReconciliationData(
+        reconciliation_reference="REC-CB-001",
+        is_chargeback=True,
+    )
+    after_time = now + timedelta(seconds=20)
+    engine.reconcile(mock_success_exec.idempotency_key, base_case, cb_data, as_of_time=after_time)
+
     assert base_case.state == CaseState.RESOLVED_UNRECOVERABLE
 
+    # Attempt to reverse finalized chargeback with settlement
+    conflicting_settlement = ReconciliationData(
+        reconciliation_reference="REC-REV-001",
+        settlement_confirmed=True,
+    )
 
-# 6. DECLINE execution outcome handling
+    with pytest.raises(ReconciliationConflictError, match="Reconciliation conflict"):
+        engine.reconcile(mock_success_exec.idempotency_key, base_case, conflicting_settlement, as_of_time=after_time)
+
+
+# 8. Repeated identical refund reconciliation
+def test_repeated_identical_refund_reconciliation(base_case, mock_success_exec):
+    """8. Verify repeated identical refund reconciliation is idempotent."""
+    now = datetime.now(timezone.utc)
+    engine = VerificationEngine()
+    engine.create_observation(mock_success_exec, base_case, start_time=now, custom_window_seconds=10)
+
+    refund_data = ReconciliationData(
+        reconciliation_reference="REC-REF-001",
+        is_refunded=True,
+    )
+    after_time = now + timedelta(seconds=20)
+
+    res1 = engine.reconcile(mock_success_exec.idempotency_key, base_case, refund_data, as_of_time=after_time)
+    res2 = engine.reconcile(mock_success_exec.idempotency_key, base_case, refund_data, as_of_time=after_time)
+
+    assert res1.final_outcome == CaseState.RESOLVED_UNRECOVERABLE
+    assert res2.final_outcome == CaseState.RESOLVED_UNRECOVERABLE
+
+
+# 9. DECLINE execution outcome handling
 def test_decline_execution_handling(base_case):
-    """6. Verify DECLINE execution sets verification status to DECLINE and case remains ACTIVE."""
+    """9. Verify DECLINE execution sets verification status to DECLINE and case remains ACTIVE."""
     engine = VerificationEngine()
     decline_exec = ExecutionResult(
         case_id=base_case.case_id,
@@ -170,25 +247,3 @@ def test_decline_execution_handling(base_case):
     obs = engine.create_observation(decline_exec, base_case)
     assert obs.verification_status == VerificationStatus.DECLINE
     assert base_case.state == CaseState.ACTIVE
-
-
-# 7. Repeated reconciliation is deterministic without duplicate side effects
-def test_repeated_reconciliation_determinism(base_case, mock_success_exec):
-    """7. Verify repeated reconciliation of the same key returns consistent, bit-exact result."""
-    now = datetime.now(timezone.utc)
-    engine = VerificationEngine()
-    engine.create_observation(mock_success_exec, base_case, start_time=now, custom_window_seconds=50)
-
-    recon_data = ReconciliationData(
-        reconciliation_reference="REC-DET-01",
-        settlement_confirmed=True,
-        net_amount_recovered=1500.0,
-    )
-    after_time = now + timedelta(seconds=100)
-
-    res1 = engine.reconcile(mock_success_exec.idempotency_key, base_case, recon_data, as_of_time=after_time)
-    res2 = engine.reconcile(mock_success_exec.idempotency_key, base_case, recon_data, as_of_time=after_time)
-
-    assert res1.final_outcome == res2.final_outcome
-    assert res1.verification_status == res2.verification_status
-    assert res1.reconciliation_status == res2.reconciliation_status

@@ -7,6 +7,7 @@ from src.verification.observation import (
 )
 from src.verification.reconciliation import (
     ReconciliationData,
+    ReconciliationConflictError,
     DEFAULT_RECONCILIATION_VERSION,
 )
 from src.verification.verifier import VerificationEngine
@@ -17,6 +18,7 @@ __all__ = [
     "ReconciliationStatus",
     "DEFAULT_OBSERVATION_VERSION",
     "ReconciliationData",
+    "ReconciliationConflictError",
     "DEFAULT_RECONCILIATION_VERSION",
     "VerificationEngine",
 ]

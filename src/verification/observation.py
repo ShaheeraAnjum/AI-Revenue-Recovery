@@ -45,6 +45,7 @@ class ObservationRecord(BaseModel):
     verification_status: VerificationStatus = VerificationStatus.UNKNOWN
     reconciliation_status: ReconciliationStatus = ReconciliationStatus.PENDING
     final_outcome: Optional[CaseState] = None
+    reconciliation_fingerprint: Optional[str] = None
     observation_version: str = DEFAULT_OBSERVATION_VERSION
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
@@ -52,3 +53,8 @@ class ObservationRecord(BaseModel):
         """Check if observation window has elapsed as of specified timestamp."""
         check_time = as_of_time or datetime.now(timezone.utc)
         return check_time >= self.observation_deadline
+
+    @property
+    def is_finalized(self) -> bool:
+        """True if observation has reached terminal outcome."""
+        return self.final_outcome in {CaseState.RESOLVED_RECOVERED, CaseState.RESOLVED_UNRECOVERABLE}

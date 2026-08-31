@@ -1,4 +1,4 @@
-"""Deterministic verification and reconciliation engine enforcing observation windows."""
+"""Deterministic verification and reconciliation engine enforcing observation windows and terminal immutability."""
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any
@@ -13,7 +13,11 @@ from src.verification.observation import (
     ReconciliationStatus,
     DEFAULT_OBSERVATION_VERSION,
 )
-from src.verification.reconciliation import ReconciliationData, DEFAULT_RECONCILIATION_VERSION
+from src.verification.reconciliation import (
+    ReconciliationData,
+    ReconciliationConflictError,
+    DEFAULT_RECONCILIATION_VERSION,
+)
 
 
 class VerificationEngine:
@@ -42,9 +46,8 @@ class VerificationEngine:
         deadline = obs_start + timedelta(seconds=window_sec)
         obs_id = f"OBS-{uuid.uuid4().hex[:10].upper()}"
 
-        # Determine initial provisional verification status
         if execution_result.execution_status == ExecutionStatus.SUCCESS:
-            v_status = VerificationStatus.UNKNOWN  # Pending observation/settlement
+            v_status = VerificationStatus.UNKNOWN
             case.state = CaseState.IN_OBSERVATION
             final_out = None
         elif execution_result.execution_status == ExecutionStatus.DECLINE:
@@ -92,22 +95,38 @@ class VerificationEngine:
         reconciliation_data: ReconciliationData,
         as_of_time: Optional[datetime] = None,
     ) -> ObservationRecord:
-        """Reconcile observation after window elapses using settlement/refund/chargeback ledger."""
+        """Reconcile observation after window elapses using settlement/refund/chargeback ledger.
+        Enforces terminal outcome immutability:
+        - Repeated identical reconciliation -> idempotent, side-effect free.
+        - Conflicting reconciliation on finalized observation -> raises ReconciliationConflictError.
+        """
         if idempotency_key not in self.observations:
             raise ValueError(f"Observation for idempotency key '{idempotency_key}' not found")
 
         record = self.observations[idempotency_key]
         now = as_of_time or datetime.now(timezone.utc)
+        fingerprint = reconciliation_data.compute_fingerprint()
 
-        # 1. Enforce observation window
+        # 1. Terminal Outcome Immutability Check
+        if record.is_finalized:
+            if record.reconciliation_fingerprint == fingerprint:
+                # Idempotent re-submission with identical data
+                return record
+            else:
+                # Conflicting reconciliation attempt on finalized observation
+                raise ReconciliationConflictError(
+                    f"Reconciliation conflict: observation '{record.observation_id}' already finalized "
+                    f"as {record.final_outcome} and cannot be mutated by conflicting reconciliation data"
+                )
+
+        # 2. Enforce observation window
         if not record.is_window_elapsed(now):
-            # Window not elapsed -> Cannot finalize recovery!
             record.verification_status = VerificationStatus.UNKNOWN
             record.reconciliation_status = ReconciliationStatus.PENDING
             record.final_outcome = None
             return record
 
-        # 2. Process reconciliation outcomes when execution was SUCCESS
+        # 3. Process reconciliation outcomes when execution was SUCCESS
         if record.execution_status in {ExecutionStatus.SUCCESS, ExecutionStatus.DUPLICATE}:
             if reconciliation_data.is_chargeback:
                 record.verification_status = VerificationStatus.RECONCILIATION
@@ -115,6 +134,7 @@ class VerificationEngine:
                 record.final_outcome = CaseState.RESOLVED_UNRECOVERABLE
                 case.state = CaseState.RESOLVED_UNRECOVERABLE
                 record.is_provisional = False
+                record.reconciliation_fingerprint = fingerprint
 
             elif reconciliation_data.is_refunded:
                 record.verification_status = VerificationStatus.RECONCILIATION
@@ -122,6 +142,7 @@ class VerificationEngine:
                 record.final_outcome = CaseState.RESOLVED_UNRECOVERABLE
                 case.state = CaseState.RESOLVED_UNRECOVERABLE
                 record.is_provisional = False
+                record.reconciliation_fingerprint = fingerprint
 
             elif reconciliation_data.settlement_confirmed:
                 record.verification_status = VerificationStatus.SUCCESS
@@ -129,6 +150,7 @@ class VerificationEngine:
                 record.final_outcome = CaseState.RESOLVED_RECOVERED
                 case.state = CaseState.RESOLVED_RECOVERED
                 record.is_provisional = False
+                record.reconciliation_fingerprint = fingerprint
 
             else:
                 # Incomplete or unconfirmed settlement
@@ -143,6 +165,7 @@ class VerificationEngine:
             record.final_outcome = CaseState.ACTIVE
             case.state = CaseState.ACTIVE
             record.is_provisional = False
+            record.reconciliation_fingerprint = fingerprint
 
         else:
             record.verification_status = VerificationStatus.UNKNOWN
