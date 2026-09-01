@@ -112,14 +112,16 @@ def test_end_to_end_empty_candidate_set(failure_event, standard_customer):
     assert cycle_res.case_state == CaseState.ACTIVE
 
 
-# 5. STOP Path
+# 5. STOP Path - Delegates strictly to frozen Execution/Verification layer
 def test_end_to_end_stop_path(failure_event, standard_customer):
-    """5. Verify STOP action transitions case to RESOLVED_UNRECOVERABLE without charging card."""
+    """5. Verify STOP action executes and transitions as defined by frozen VerificationEngine."""
     orchestrator = RevenueRecoveryOrchestrator()
     case = orchestrator.ingest_failure_event(failure_event, standard_customer)
 
     cycle_res = orchestrator.process_recovery_cycle(case, standard_customer, candidate_actions=[ActionType.STOP])
     assert cycle_res.selected_action == ActionType.STOP
+    assert cycle_res.execution_result.execution_status == ExecutionStatus.SUCCESS
+    assert cycle_res.observation_record.final_outcome == CaseState.RESOLVED_UNRECOVERABLE
     assert cycle_res.case_state == CaseState.RESOLVED_UNRECOVERABLE
 
 
@@ -169,7 +171,6 @@ def test_end_to_end_messaging_approval_and_rejection(failure_event, standard_cus
     assert cycle.message_validation.is_approved is True
 
     # Customer with SMS consent but lacking email consent:
-    # Policy allows communication (since opt_in_sms=True), but Email template validator rejects it!
     no_email_cust = standard_customer.model_copy(deep=True)
     no_email_cust.opt_in_email = False
     no_email_cust.opt_in_sms = True
@@ -194,7 +195,6 @@ def test_invariant_1_llm_cannot_select_action(failure_event, standard_customer):
     case = orchestrator.ingest_failure_event(failure_event, standard_customer)
     cycle = orchestrator.process_recovery_cycle(case, standard_customer, candidate_actions=[ActionType.PAYMENT_UPDATE])
 
-    # Even if LLM attempted rogue candidate, selected_action is solely determined by DecisionEngine
     assert cycle.selected_action == ActionType.PAYMENT_UPDATE
 
 
@@ -235,7 +235,6 @@ def test_invariant_5_policy_filtering_precedes_action_selection(failure_event, s
     """INVARIANT 5: Prohibited actions are pruned before Q2 scoring and argmax."""
     orchestrator = RevenueRecoveryOrchestrator()
     case = orchestrator.ingest_failure_event(failure_event, standard_customer)
-    # Simulate case reaching max retry attempts (e.g. 4)
     case.retry_attempt_count = 4
 
     cycle = orchestrator.process_recovery_cycle(case, standard_customer)
@@ -296,7 +295,6 @@ def test_invariant_9_validator_cannot_modify_selected_action(failure_event, stan
     orchestrator = RevenueRecoveryOrchestrator()
     case = orchestrator.ingest_failure_event(failure_event, standard_customer)
 
-    # Force invalid template
     cycle = orchestrator.process_recovery_cycle(
         case, standard_customer,
         candidate_actions=[ActionType.PAYMENT_UPDATE],
@@ -316,7 +314,7 @@ def test_invariant_10_unknown_states_cannot_become_successful_recovery(failure_e
     recon_time = datetime.now(timezone.utc) + timedelta(hours=2)
     incomplete_data = ReconciliationData(
         reconciliation_reference="REC-INCOMPLETE",
-        settlement_confirmed=False,  # Unconfirmed
+        settlement_confirmed=False,
     )
     obs = orchestrator.reconcile_case(cycle.idempotency_key, case, incomplete_data, as_of_time=recon_time)
 

@@ -18,6 +18,7 @@ from src.orchestration.schema import OrchestrationCycleResult
 class RevenueRecoveryOrchestrator:
     """Deterministic coordinator executing the complete revenue recovery lifecycle:
     PaymentFailureEvent -> RecoveryCase -> DecisionEngine -> Executor -> Observation -> Reconciliation -> Constrained Messaging.
+    The orchestrator does not make decisions, score actions, invent attempt formulas, or classify final recovery.
     """
 
     def __init__(
@@ -37,7 +38,7 @@ class RevenueRecoveryOrchestrator:
         event: PaymentFailureEvent,
         customer: CustomerProfile,
     ) -> RecoveryCase:
-        """Ingest a payment failure event to create or activate a recovery case."""
+        """Ingest a payment failure event to create an active recovery case."""
         case = RecoveryCase(
             case_id=event.invoice_id or f"CASE-{uuid.uuid4().hex[:8].upper()}",
             customer_id=customer.customer_id,
@@ -58,7 +59,7 @@ class RevenueRecoveryOrchestrator:
         decision_id: Optional[str] = None,
         preferred_template_id: Optional[str] = None,
     ) -> OrchestrationCycleResult:
-        """Coordinate one deterministic recovery cycle without inventing decision logic."""
+        """Coordinate one deterministic recovery cycle delegating to frozen components."""
         cycle_id = f"CYC-{uuid.uuid4().hex[:8].upper()}"
 
         # 1. Decision Engine evaluates policy and selects action via single argmax
@@ -71,7 +72,7 @@ class RevenueRecoveryOrchestrator:
         )
 
         # Handle empty candidate / no-action result
-        if dec_res.selected_action is None:
+        if dec_res.selected_action is None or dec_res.idempotency_key is None:
             return OrchestrationCycleResult(
                 cycle_id=cycle_id,
                 case_id=case.case_id,
@@ -82,7 +83,10 @@ class RevenueRecoveryOrchestrator:
             )
 
         selected_act = dec_res.selected_action
-        attempt = case.retry_attempt_count + case.reminder_count + case.escalation_count + 1
+
+        # Consume authoritative attempt from DecisionResult idempotency key (case_id:decision_id:action:attempt)
+        attempt_str = dec_res.idempotency_key.split(":")[-1]
+        authoritative_attempt = int(attempt_str) if attempt_str.isdigit() else 1
 
         # 2. Safely execute selected action via idempotent executor
         exec_res: ExecutionResult = self.executor.execute(
@@ -90,21 +94,10 @@ class RevenueRecoveryOrchestrator:
             case=case,
             customer=customer,
             decision_id=dec_res.decision_id,
-            attempt=attempt,
+            attempt=authoritative_attempt,
         )
 
-        # Update case attempt counters based on executed action
-        if selected_act == ActionType.RETRY:
-            case.retry_attempt_count += 1
-        elif selected_act == ActionType.REMINDER:
-            case.reminder_count += 1
-        elif selected_act == ActionType.ESCALATE:
-            case.escalation_count += 1
-        elif selected_act == ActionType.WAIT:
-            case.days_waiting += 1
-        case.last_action = selected_act
-
-        # 3. Create provisional observation in verification engine (case -> IN_OBSERVATION)
+        # 3. Create provisional observation in verification engine (VerificationEngine manages case.state)
         obs_rec: ObservationRecord = self.verification_engine.create_observation(
             execution_result=exec_res,
             case=case,
@@ -117,7 +110,6 @@ class RevenueRecoveryOrchestrator:
 
         template_id = preferred_template_id
         if template_id is None:
-            # Auto-select approved template for action
             if selected_act == ActionType.PAYMENT_UPDATE:
                 template_id = "TMPL_PAYMENT_UPDATE_EMAIL_V1"
             elif selected_act == ActionType.REMINDER:
@@ -156,7 +148,7 @@ class RevenueRecoveryOrchestrator:
         reconciliation_data: ReconciliationData,
         as_of_time: Optional[datetime] = None,
     ) -> ObservationRecord:
-        """Coordinate post-observation financial reconciliation."""
+        """Coordinate post-observation financial reconciliation via frozen VerificationEngine."""
         return self.verification_engine.reconcile(
             idempotency_key=idempotency_key,
             case=case,
