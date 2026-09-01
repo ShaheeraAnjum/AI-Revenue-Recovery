@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Revenue Recovery -- Deterministic Architecture Dashboard</title>
+    <style>
+        :root {
+            --bg: #0d1117;
+            --card-bg: #161b22;
+            --border: #30363d;
+            --accent: #58a6ff;
+            --success: #3fb950;
+            --warning: #d29922;
+            --danger: #f85149;
+            --text: #c9d1d9;
+            --text-heading: #f0f6fc;
+            --text-dim: #8b949e;
+            --code-bg: #090d13;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+        body { background-color: var(--bg); color: var(--text); line-height: 1.5; padding: 20px 40px; }
+        header { border-bottom: 1px solid var(--border); padding-bottom: 16px; margin-bottom: 24px; }
+        .disclaimer-banner { background: #382405; border: 1px solid var(--warning); color: #f2cc60; padding: 10px 16px; border-radius: 6px; font-size: 0.88rem; margin-bottom: 20px; font-weight: 500; }
+        h1 { color: var(--text-heading); font-size: 1.6rem; font-weight: 700; margin-bottom: 4px; }
+        .subtitle { color: var(--text-dim); font-size: 0.95rem; }
+        .grid-2 { display: grid; grid-template-columns: 340px 1fr; gap: 24px; }
+        .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 18px; margin-bottom: 20px; }
+        .card-header { font-size: 1.05rem; font-weight: 600; color: var(--text-heading); margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+        .scenario-btn { display: block; width: 100%; text-align: left; background: #21262d; border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; margin-bottom: 8px; color: var(--text); cursor: pointer; transition: all 0.15s ease; font-size: 0.88rem; }
+        .scenario-btn:hover { background: #30363d; border-color: var(--accent); }
+        .scenario-btn.active { background: #1f6feb22; border-color: var(--accent); color: var(--accent); font-weight: 600; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
+        .badge-success { background: #23863633; color: var(--success); border: 1px solid var(--success); }
+        .badge-warning { background: #9e6a0333; color: var(--warning); border: 1px solid var(--warning); }
+        .badge-danger { background: #da363333; color: var(--danger); border: 1px solid var(--danger); }
+        .badge-accent { background: #1f6feb33; color: var(--accent); border: 1px solid var(--accent); }
+        table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 0.88rem; }
+        th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+        th { color: var(--text-dim); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.5px; }
+        .highlight-row { background: #1f6feb15; font-weight: 600; }
+        .stage-pill { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #21262d; border-radius: 6px; margin-bottom: 8px; border-left: 4px solid var(--accent); font-size: 0.88rem; }
+        .code-box { background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px; font-family: monospace; font-size: 0.82rem; color: #a5d6ff; overflow-x: auto; white-space: pre-wrap; margin-top: 6px; }
+        .metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 14px; }
+        .metric-card { background: #0d1117; border: 1px solid var(--border); border-radius: 6px; padding: 10px; text-align: center; }
+        .metric-title { font-size: 0.75rem; color: var(--text-dim); text-transform: uppercase; }
+        .metric-val { font-size: 1.15rem; font-weight: 700; color: var(--text-heading); margin-top: 4px; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>AI Revenue Recovery -- Final Frozen Architecture v5</h1>
+        <div class="subtitle">Deterministic Contextual LinUCB Value Engine, Policy Boundary & Constrained LLM Guardrails</div>
+    </header>
+
+    <div class="disclaimer-banner">
+        <strong>DEMO / SIMULATED ENVIRONMENT</strong> -- Core business logic, mathematical sequence scoring, policy rules, and idempotency guarantees are 100% frozen & deterministic.
+    </div>
+
+    <div class="grid-2">
+        <!-- Sidebar: Scenario Selector -->
+        <div>
+            <div class="card">
+                <div class="card-header">
+                    <span>Demonstration Scenarios</span>
+                    <span class="badge badge-accent">8 Scenarios</span>
+                </div>
+                <div id="scenario-buttons">Loading scenarios...</div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">Architectural Authority</div>
+                <div style="font-size: 0.82rem; color: var(--text-dim); line-height: 1.6;">
+                    <div><strong>Action Selection:</strong> DecisionEngine</div>
+                    <div><strong>Exploration Bonus:</strong> LinUCB Value Model</div>
+                    <div><strong>Policy Pruning:</strong> PolicyEngine</div>
+                    <div><strong>Execution:</strong> Idempotent Executor</div>
+                    <div><strong>Recovery Claim:</strong> VerificationEngine</div>
+                    <div><strong>Communication:</strong> MessageValidator</div>
+                    <div style="margin-top: 6px; color: var(--danger); font-weight: 600;">LLM has ZERO decision authority.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Display: Execution Trace -->
+        <div>
+            <!-- Overview Metrics -->
+            <div class="metric-grid">
+                <div class="metric-card">
+                    <div class="metric-title">Case ID</div>
+                    <div class="metric-val" id="disp-case-id">-</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-title">Amount at Risk</div>
+                    <div class="metric-val" id="disp-amount">-</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-title">Selected Action</div>
+                    <div class="metric-val" id="disp-action" style="color: var(--accent);">-</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-title">Current State</div>
+                    <div class="metric-val" id="disp-state">-</div>
+                </div>
+            </div>
+
+            <!-- Pipeline Trace Card -->
+            <div class="card">
+                <div class="card-header">
+                    <span id="scenario-title">Scenario Details</span>
+                    <span id="scenario-category" class="badge badge-accent">-</span>
+                </div>
+                <p id="scenario-desc" style="font-size: 0.9rem; color: var(--text); margin-bottom: 16px;">Select a scenario on the left.</p>
+
+                <!-- Stage 1: Policy Filtering -->
+                <div class="stage-pill" style="border-left-color: #d29922;">
+                    <strong>Stage 1: Pre-Decision Policy Filtering</strong>
+                </div>
+                <div style="padding: 0 8px 14px 8px; font-size: 0.88rem;">
+                    <div><strong>Allowed Actions:</strong> <span id="policy-allowed" style="color: var(--success);">-</span></div>
+                    <div><strong>Prohibited Actions:</strong> <span id="policy-prohibited" style="color: var(--danger);">-</span></div>
+                </div>
+
+                <!-- Stage 2: Mathematical Sequence Scoring -->
+                <div class="stage-pill" style="border-left-color: var(--accent);">
+                    <strong>Stage 2: Two-Step Horizon LinUCB Scoring [Q2(s,a) + B(x,a)]</strong>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Action</th>
+                            <th>Q1 Base Value</th>
+                            <th>Q2 Sequence Value</th>
+                            <th>Exploration B(x,a)</th>
+                            <th>Final Score</th>
+                            <th>Method</th>
+                        </tr>
+                    </thead>
+                    <tbody id="scoring-tbody">
+                        <tr><td colspan="6" style="text-align: center; color: var(--text-dim);">No scoring data loaded</td></tr>
+                    </tbody>
+                </table>
+
+                <!-- Stage 3: Execution & Observation -->
+                <div class="stage-pill" style="border-left-color: #a371f7; margin-top: 18px;">
+                    <strong>Stage 3: Idempotent Execution & Provisional Holding</strong>
+                </div>
+                <div style="padding: 0 8px 14px 8px; font-size: 0.88rem;">
+                    <div><strong>Idempotency Key:</strong> <code id="exec-idemp" style="color: #a5d6ff;">-</code></div>
+                    <div><strong>Execution Status:</strong> <span id="exec-status">-</span> | <strong>Holding Window:</strong> <span id="exec-window">-</span></div>
+                    <div style="color: var(--warning); margin-top: 4px; font-size: 0.82rem;"><strong>Invariant:</strong> Execution SUCCESS directly produces provisional IN_OBSERVATION (Never marks RESOLVED_RECOVERED).</div>
+                </div>
+
+                <!-- Stage 4: Settlement Reconciliation -->
+                <div id="recon-section" style="display: none;">
+                    <div class="stage-pill" style="border-left-color: var(--success);">
+                        <strong>Stage 4: Settlement Ledger Reconciliation</strong>
+                    </div>
+                    <div style="padding: 0 8px 14px 8px; font-size: 0.88rem;">
+                        <div><strong>Reconciliation Ref:</strong> <span id="recon-ref">-</span></div>
+                        <div><strong>Settlement Status:</strong> <span id="recon-status">-</span></div>
+                        <div><strong>Final Verified Outcome:</strong> <span id="recon-outcome" style="font-weight: 700;">-</span></div>
+                    </div>
+                </div>
+
+                <!-- Stage 5: Constrained Messaging & Anti-Hallucination -->
+                <div class="stage-pill" style="border-left-color: #58a6ff; margin-top: 14px;">
+                    <strong>Stage 5: Constrained LLM Messaging & Deterministic Validator</strong>
+                </div>
+                <div style="padding: 0 8px 6px 8px; font-size: 0.88rem;">
+                    <div><strong>Validator Disposition:</strong> <span id="msg-val-status">-</span></div>
+                    <div><strong>Message Content:</strong></div>
+                    <div class="code-box" id="msg-body">No message delivered.</div>
+                </div>
+
+                <!-- Stage 5b: Anti-Hallucination Guardrail Demo -->
+                <div id="hallucination-section" style="display: none; margin-top: 14px;">
+                    <div style="background: #3d1418; border: 1px solid var(--danger); padding: 12px; border-radius: 6px;">
+                        <div style="font-weight: 700; color: #ff7b72; margin-bottom: 4px;">Anti-Hallucination Guardrail Caught Rogue LLM Output:</div>
+                        <div style="font-size: 0.85rem; color: var(--text);">Rogue Message: <span id="halluc-text" style="font-style: italic; color: #ffa198;">-</span></div>
+                        <div style="font-size: 0.85rem; color: var(--text); margin-top: 4px;">Rejection Codes: <span id="halluc-reasons" class="badge badge-danger">-</span></div>
+                        <div style="font-size: 0.82rem; color: var(--success); margin-top: 4px;"><strong>Decision Protection:</strong> Selected action was NOT altered and remains <span id="halluc-action" style="font-weight: bold;">-</span>.</div>
+                    </div>
+                </div>
+
+                <!-- Audit Version Dimensions -->
+                <div style="margin-top: 20px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 0.78rem; color: var(--text-dim); display: flex; justify-content: space-between;">
+                    <div>Policy: <span id="ver-policy">-</span> | Value Model: <span id="ver-val">-</span> | Transition: <span id="ver-trans">-</span> | Schema: <span id="ver-schema">-</span></div>
+                    <div>Audit Record: COMPLETE</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function fetchScenarios() {
+            const res = await fetch('/api/scenarios');
+            const data = await res.json();
+            const container = document.getElementById('scenario-buttons');
+            container.innerHTML = '';
+            data.scenarios.forEach((sc, idx) => {
+                const btn = document.createElement('button');
+                btn.className = 'scenario-btn' + (idx === 0 ? ' active' : '');
+                btn.innerHTML = `<strong>${sc.name.split(':')[0]}</strong><div style="font-size:0.75rem; color:var(--text-dim);">${sc.category}</div>`;
+                btn.onclick = () => {
+                    document.querySelectorAll('.scenario-btn').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    loadScenario(sc.scenario_id);
+                };
+                container.appendChild(btn);
+            });
+            if (data.scenarios.length > 0) {
+                loadScenario(data.scenarios[0].scenario_id);
+            }
+        }
+
+        async function loadScenario(id) {
+            const res = await fetch('/api/run/' + id);
+            const d = await res.json();
+
+            document.getElementById('scenario-title').innerText = d.scenario.name;
+            document.getElementById('scenario-category').innerText = d.scenario.category;
+            document.getElementById('scenario-desc').innerText = d.scenario.description;
+
+            document.getElementById('disp-case-id').innerText = d.case.case_id;
+            document.getElementById('disp-amount').innerText = 'INR ' + d.case.amount_at_risk.toFixed(2);
+            document.getElementById('disp-action').innerText = d.decision.selected_action || 'NONE';
+            document.getElementById('disp-state').innerText = d.reconciliation ? d.reconciliation.final_case_state : d.case.provisional_state;
+
+            // Policy
+            document.getElementById('policy-allowed').innerText = d.policy.allowed_actions.join(', ') || 'None';
+            const prohList = Object.entries(d.policy.prohibited_actions).map(([k, v]) => `${k} (${v})`).join(', ');
+            document.getElementById('policy-prohibited').innerText = prohList || 'None';
+
+            // Scoring table
+            const tbody = document.getElementById('scoring-tbody');
+            tbody.innerHTML = '';
+            d.scoring.forEach(s => {
+                const tr = document.createElement('tr');
+                if (s.action === d.decision.selected_action) tr.className = 'highlight-row';
+                tr.innerHTML = `
+                    <td><strong>${s.action}</strong> ${s.action === d.decision.selected_action ? '<span class="badge badge-accent">Selected</span>' : ''}</td>
+                    <td>INR ${s.q1_base_value.toFixed(2)}</td>
+                    <td>INR ${s.q2_sequence_value.toFixed(2)}</td>
+                    <td>INR ${s.exploration_bonus.toFixed(2)}</td>
+                    <td><strong>INR ${s.final_score.toFixed(2)}</strong></td>
+                    <td><span style="font-size:0.75rem; color:var(--text-dim);">${s.estimation_method}</span></td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            // Execution
+            document.getElementById('exec-idemp').innerText = d.decision.idempotency_key || 'N/A';
+            document.getElementById('exec-status').innerHTML = `<span class="badge badge-success">${d.execution.status}</span>`;
+            document.getElementById('exec-window').innerText = d.execution.window_seconds + ' seconds';
+
+            // Reconciliation
+            const reconSec = document.getElementById('recon-section');
+            if (d.reconciliation) {
+                reconSec.style.display = 'block';
+                document.getElementById('recon-ref').innerText = d.reconciliation.reference;
+                document.getElementById('recon-status').innerHTML = d.reconciliation.settlement_confirmed ? '<span class="badge badge-success">SETTLED</span>' : (d.reconciliation.is_chargeback ? '<span class="badge badge-danger">CHARGEBACK</span>' : '<span class="badge badge-warning">PENDING</span>');
+                document.getElementById('recon-outcome').innerText = d.reconciliation.final_outcome;
+                document.getElementById('recon-outcome').style.color = d.reconciliation.final_outcome === 'RESOLVED_RECOVERED' ? 'var(--success)' : 'var(--danger)';
+            } else {
+                reconSec.style.display = 'none';
+            }
+
+            // Messaging
+            document.getElementById('msg-val-status').innerHTML = d.messaging.validation_status === 'APPROVED' ? '<span class="badge badge-success">APPROVED</span>' : (d.messaging.validation_status === 'REJECTED' ? '<span class="badge badge-danger">REJECTED</span>' : '<span class="badge badge-warning">N/A</span>');
+            document.getElementById('msg-body').innerText = d.messaging.delivered_text || '(No customer message delivered)';
+
+            // Hallucination section
+            const hallSec = document.getElementById('hallucination-section');
+            if (d.hallucination_guard) {
+                hallSec.style.display = 'block';
+                document.getElementById('halluc-text').innerText = d.hallucination_guard.candidate_text;
+                document.getElementById('halluc-reasons').innerText = d.hallucination_guard.rejection_reasons.join(', ');
+                document.getElementById('halluc-action').innerText = d.hallucination_guard.action_preserved;
+            } else {
+                hallSec.style.display = 'none';
+            }
+
+            // Versions
+            document.getElementById('ver-policy').innerText = d.audit_versions.policy_version;
+            document.getElementById('ver-val').innerText = d.audit_versions.value_model_version;
+            document.getElementById('ver-trans').innerText = d.audit_versions.transition_model_version;
+            document.getElementById('ver-schema').innerText = d.audit_versions.feature_schema_version;
+        }
+
+        window.onload = fetchScenarios;
+    </script>
+</body>
+</html>
