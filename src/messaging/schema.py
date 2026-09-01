@@ -9,6 +9,12 @@ DEFAULT_MESSAGE_POLICY_VERSION: str = "msg_v5.0.0"
 DEFAULT_VALIDATOR_VERSION: str = "val_v5.0.0"
 
 
+class CommunicationChannel(str, Enum):
+    """Channel used for customer communication."""
+    EMAIL = "email"
+    SMS = "sms"
+
+
 class MessageValidationStatus(str, Enum):
     """Validation disposition for candidate message."""
     APPROVED = "APPROVED"

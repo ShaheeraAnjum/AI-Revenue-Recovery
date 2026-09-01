@@ -1,6 +1,6 @@
 """Strict deterministic validator protecting against LLM hallucination and policy violations."""
 import re
-from typing import Optional, List
+from typing import Optional, List, Dict
 from src.domain.actions import ActionType
 from src.domain.case import RecoveryCase, CustomerProfile, PaymentFailureCode
 from src.messaging.schema import (
@@ -8,28 +8,36 @@ from src.messaging.schema import (
     ValidationResult,
     MessageValidationStatus,
     MessageRejectionReason,
+    CommunicationChannel,
     DEFAULT_VALIDATOR_VERSION,
 )
 from src.messaging.templates import MessageTemplate, APPROVED_TEMPLATES
 
-# Failure code human-readable token mapping
-FAILURE_CODE_KEYWORDS = {
-    PaymentFailureCode.INSUFFICIENT_FUNDS: ["insufficient funds", "insufficient_funds", "low balance"],
-    PaymentFailureCode.CARD_EXPIRED: ["card expired", "card_expired", "expiration"],
-    PaymentFailureCode.DO_NOT_HONOR: ["do not honor", "do_not_honor", "bank decline"],
-    PaymentFailureCode.FRAUD_SUSPECTED: ["fraud suspected", "fraud", "security block"],
-    PaymentFailureCode.INVALID_CARD_NUMBER: ["invalid card", "invalid card number"],
-    PaymentFailureCode.AUTHENTICATION_REQUIRED: ["authentication required", "3ds", "verification required"],
-    PaymentFailureCode.PROCESSING_ERROR: ["processing error", "system error"],
-    PaymentFailureCode.GENERIC_DECLINE: ["generic decline", "declined", "card declined"],
-    PaymentFailureCode.LIMIT_EXCEEDED: ["limit exceeded", "spending limit"],
+# Canonical approved phrases per failure code (strictly mapped; generic terms cannot substitute specific codes)
+CANONICAL_FAILURE_PHRASES: Dict[PaymentFailureCode, List[str]] = {
+    PaymentFailureCode.INSUFFICIENT_FUNDS: ["insufficient funds"],
+    PaymentFailureCode.CARD_EXPIRED: ["card expired", "expired card"],
+    PaymentFailureCode.DO_NOT_HONOR: ["do not honor", "bank declined charge"],
+    PaymentFailureCode.PROCESSING_ERROR: ["processing error"],
+    PaymentFailureCode.FRAUD_SUSPECTED: ["suspected fraud", "security flag"],
+    PaymentFailureCode.INVALID_CARD_NUMBER: ["invalid card number"],
+    PaymentFailureCode.AUTHENTICATION_REQUIRED: ["authentication required", "3d secure required"],
+    PaymentFailureCode.LIMIT_EXCEEDED: ["limit exceeded", "spending limit reached"],
+    PaymentFailureCode.GENERIC_DECLINE: ["card declined", "transaction declined", "declined"],
+}
+
+# Action action-intent keywords in message body to detect action mismatch
+ACTION_INTENT_KEYWORDS: Dict[ActionType, List[str]] = {
+    ActionType.RETRY: ["re-attempting", "retrying your scheduled payment", "re-trying"],
+    ActionType.PAYMENT_UPDATE: ["update your payment method", "updating your payment"],
+    ActionType.REMINDER: ["reminder", "is overdue", "review your billing details"],
 }
 
 
 class MessageValidator:
-    """Deterministic message validator ensuring zero LLM hallucination."""
+    """Deterministic message validator ensuring zero LLM hallucination and 100% ground-truth adherence."""
 
-    def __init__(self, templates: Optional[dict[str, MessageTemplate]] = None, version: str = DEFAULT_VALIDATOR_VERSION):
+    def __init__(self, templates: Optional[Dict[str, MessageTemplate]] = None, version: str = DEFAULT_VALIDATOR_VERSION):
         self.templates = templates or APPROVED_TEMPLATES
         self.version = version
 
@@ -41,7 +49,7 @@ class MessageValidator:
         selected_action: ActionType,
         template: Optional[MessageTemplate] = None,
     ) -> ValidationResult:
-        """Deterministically validate candidate message against authoritative ground truth facts."""
+        """Deterministically validate candidate message body against authoritative ground truth facts."""
         reasons: List[MessageRejectionReason] = []
 
         # 1. Template approval check
@@ -55,64 +63,98 @@ class MessageValidator:
                 validator_version=self.version,
             )
 
-        # 2. Action consistency check
+        # 2. Template / Action compatibility check
         if selected_action not in active_template.applicable_actions:
             reasons.append(MessageRejectionReason.ACTION_MISMATCH)
 
         if message.stated_action is not None and message.stated_action != selected_action:
             reasons.append(MessageRejectionReason.ACTION_MISMATCH)
 
-        # 3. Consent check
-        if active_template.requires_consent:
-            has_consent = customer.opt_in_email or customer.opt_in_sms
-            if not has_consent:
-                reasons.append(MessageRejectionReason.CONSENT_MISSING)
+        # Body action intent check
+        body_lower = message.body_text.lower()
+        for action_type, keywords in ACTION_INTENT_KEYWORDS.items():
+            if action_type != selected_action:
+                for kw in keywords:
+                    if kw in body_lower:
+                        reasons.append(MessageRejectionReason.ACTION_MISMATCH)
+                        break
 
-        # 4. Amount consistency & anti-hallucination check
+        # 3. Channel-specific consent check
+        if active_template.requires_consent:
+            if active_template.channel == CommunicationChannel.EMAIL:
+                if not customer.opt_in_email:
+                    reasons.append(MessageRejectionReason.CONSENT_MISSING)
+            elif active_template.channel == CommunicationChannel.SMS:
+                if not customer.opt_in_sms:
+                    reasons.append(MessageRejectionReason.CONSENT_MISSING)
+
+        # 4. Anti-Hallucination Amount Validation on Body Text
         expected_amount = float(case.amount_at_risk)
+        # Remove case_id to prevent capturing numbers inside ID strings like CASE-123
+        body_clean = message.body_text.replace(case.case_id, "")
+        
+        # Check for unapproved external URLs
+        if re.search(r"https?://", body_clean):
+            reasons.append(MessageRejectionReason.FORBIDDEN_CONTENT)
+
+        # Find all monetary numbers in body
+        found_numbers = re.findall(r"\b\d+(?:\.\d{1,2})?\b", body_clean)
+
         if "amount" in active_template.required_facts:
-            if message.stated_amount is None:
-                # Remove case_id from body text before searching for amounts
-                clean_body = message.body_text.replace(case.case_id, "")
-                extracted_numbers = re.findall(r"\b\d+(?:\.\d{1,2})?\b", clean_body)
-                if not extracted_numbers:
-                    reasons.append(MessageRejectionReason.AMOUNT_MISSING)
-                else:
-                    found_match = any(abs(float(num) - expected_amount) < 0.01 for num in extracted_numbers)
-                    if not found_match:
-                        reasons.append(MessageRejectionReason.AMOUNT_MISMATCH)
+            if not found_numbers:
+                reasons.append(MessageRejectionReason.AMOUNT_MISSING)
             else:
-                if abs(message.stated_amount - expected_amount) > 0.01:
+                # Check if correct ground truth amount is present
+                matching_amount = any(abs(float(num) - expected_amount) < 0.01 for num in found_numbers)
+                if not matching_amount:
+                    reasons.append(MessageRejectionReason.AMOUNT_MISMATCH)
+                
+                # Check if there are hallucinated additional monetary numbers
+                for num in found_numbers:
+                    if abs(float(num) - expected_amount) >= 0.01:
+                        reasons.append(MessageRejectionReason.AMOUNT_MISMATCH)
+                        break
+        
+        # Check structured stated_amount
+        if message.stated_amount is not None:
+            if abs(message.stated_amount - expected_amount) > 0.01:
+                if MessageRejectionReason.AMOUNT_MISMATCH not in reasons:
                     reasons.append(MessageRejectionReason.AMOUNT_MISMATCH)
 
-        # 5. Failure code consistency & anti-hallucination check
+        # 5. Anti-Hallucination Failure Code Validation on Body Text
         if "failure_reason" in active_template.required_facts:
             actual_code = case.failure_code
-            allowed_keywords = FAILURE_CODE_KEYWORDS.get(actual_code, [actual_code.value.lower()])
+            approved_phrases = CANONICAL_FAILURE_PHRASES.get(actual_code, [])
 
-            # Verify stated failure reason if present
-            if message.stated_failure_reason is not None:
-                if not any(kw in message.stated_failure_reason.lower() for kw in allowed_keywords):
-                    reasons.append(MessageRejectionReason.FAILURE_CODE_MISMATCH)
+            # Body text must contain at least one approved canonical phrase for the actual code
+            has_actual_phrase = any(phrase in body_lower for phrase in approved_phrases)
+            if not has_actual_phrase:
+                reasons.append(MessageRejectionReason.FAILURE_CODE_MISMATCH)
 
-            # Check body text does not mention conflicting failure codes
-            body_lower = message.body_text.lower()
-            for other_code, other_kws in FAILURE_CODE_KEYWORDS.items():
+            # Body text must NOT contain canonical phrases of other failure codes
+            for other_code, other_phrases in CANONICAL_FAILURE_PHRASES.items():
                 if other_code != actual_code:
-                    for okw in other_kws:
-                        if okw in body_lower and not any(akw in body_lower for akw in allowed_keywords):
-                            reasons.append(MessageRejectionReason.FAILURE_CODE_MISMATCH)
+                    for op in other_phrases:
+                        if op in body_lower:
+                            if MessageRejectionReason.FAILURE_CODE_MISMATCH not in reasons:
+                                reasons.append(MessageRejectionReason.FAILURE_CODE_MISMATCH)
                             break
 
-        # 6. Case ID factual check
+            # Structured stated_failure_reason check
+            if message.stated_failure_reason is not None:
+                if message.stated_failure_reason != actual_code.value:
+                    if MessageRejectionReason.FAILURE_CODE_MISMATCH not in reasons:
+                        reasons.append(MessageRejectionReason.FAILURE_CODE_MISMATCH)
+
+        # 6. Required Facts in Body: Case ID
         if "case_id" in active_template.required_facts:
             if case.case_id not in message.body_text:
                 reasons.append(MessageRejectionReason.REQUIRED_FACT_MISSING)
 
-        is_valid = len(reasons) == 0
+        is_approved = (len(reasons) == 0)
         return ValidationResult(
-            is_approved=is_valid,
-            status=MessageValidationStatus.APPROVED if is_valid else MessageValidationStatus.REJECTED,
+            is_approved=is_approved,
+            status=MessageValidationStatus.APPROVED if is_approved else MessageValidationStatus.REJECTED,
             rejection_reasons=reasons,
             validator_version=self.version,
         )

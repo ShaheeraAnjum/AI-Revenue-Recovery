@@ -23,7 +23,7 @@ class BaseLLMClient(ABC):
 
 
 class MockLLMClient(BaseLLMClient):
-    """Deterministic mock LLM client producing factual, template-compliant messages."""
+    """Deterministic mock LLM client producing factual, template-compliant messages without invented infrastructure."""
 
     def generate_message(
         self,
@@ -36,7 +36,6 @@ class MockLLMClient(BaseLLMClient):
             amount=f"{case.amount_at_risk:.2f}",
             case_id=case.case_id,
             failure_reason=case.failure_code.value.replace("_", " ").lower(),
-            portal_url=f"https://pay.recover.io/update/{case.case_id}",
         )
         return CandidateMessage(
             template_id=template.template_id,
