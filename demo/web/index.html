@@ -41,7 +41,7 @@
         .highlight-row { background: #1f6feb15; font-weight: 600; }
         .stage-pill { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #21262d; border-radius: 6px; margin-bottom: 8px; border-left: 4px solid var(--accent); font-size: 0.88rem; }
         .code-box { background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px; font-family: monospace; font-size: 0.82rem; color: #a5d6ff; overflow-x: auto; white-space: pre-wrap; margin-top: 6px; }
-        .metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 14px; }
+        .metric-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 14px; }
         .metric-card { background: #0d1117; border: 1px solid var(--border); border-radius: 6px; padding: 10px; text-align: center; }
         .metric-title { font-size: 0.75rem; color: var(--text-dim); text-transform: uppercase; }
         .metric-val { font-size: 1.15rem; font-weight: 700; color: var(--text-heading); margin-top: 4px; }
@@ -50,7 +50,8 @@
 <body>
     <header>
         <h1>AI Revenue Recovery</h1>
-        <div class="subtitle">Deterministic Contextual LinUCB Value Engine, Policy Boundary & Constrained LLM Guardrails</div>
+        <div class="subtitle">AI-Powered Payment Revenue Recovery with Deterministic Decisioning & Safety Guardrails</div>
+        <div style="font-size: 0.82rem; color: var(--text-dim); margin-top: 4px;">Contextual LinUCB • Two-Step Value Horizon • Policy Guardrails • Idempotent Execution • Settlement Verification</div>
     </header>
 
     <div class="disclaimer-banner">
@@ -101,6 +102,10 @@
                 <div class="metric-card">
                     <div class="metric-title">Current State</div>
                     <div class="metric-val" id="disp-state">-</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-title">Final Outcome</div>
+                    <div class="metric-val" id="disp-final-outcome" style="font-size: 0.98rem; font-weight: 700;">-</div>
                 </div>
             </div>
 
@@ -225,7 +230,18 @@
             document.getElementById('disp-case-id').innerText = d.case.case_id;
             document.getElementById('disp-amount').innerText = 'INR ' + d.case.amount_at_risk.toFixed(2);
             document.getElementById('disp-action').innerText = d.decision.selected_action || 'NONE';
-            document.getElementById('disp-state').innerText = d.reconciliation ? d.reconciliation.final_case_state : d.case.provisional_state;
+            document.getElementById('disp-state').innerText = d.case.provisional_state;
+
+            const finalOutcome = d.reconciliation ? d.reconciliation.final_outcome : (d.decision.selected_action === 'STOP' ? 'RESOLVED_UNRECOVERABLE' : (d.decision.selected_action ? 'IN_OBSERVATION' : 'NO_ACTION'));
+            const outcomeEl = document.getElementById('disp-final-outcome');
+            outcomeEl.innerText = finalOutcome;
+            if (finalOutcome === 'RESOLVED_RECOVERED') {
+                outcomeEl.style.color = 'var(--success)';
+            } else if (finalOutcome === 'RESOLVED_UNRECOVERABLE') {
+                outcomeEl.style.color = 'var(--danger)';
+            } else {
+                outcomeEl.style.color = 'var(--warning)';
+            }
 
             // Policy
             document.getElementById('policy-allowed').innerText = d.policy.allowed_actions.join(', ') || 'None';

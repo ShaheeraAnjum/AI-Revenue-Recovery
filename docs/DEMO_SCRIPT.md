@@ -28,8 +28,8 @@ Use this step-by-step walkthrough script during academic, faculty, or technical 
 ## Step 3: Demonstrate Scenario C -- Hard Policy Decline (Fraud Suspected)
 1. Click on **Scenario C: Fraud Suspected**.
 2. **Observe & Explain:**
-   - **Policy Engine Pruning:** Because the failure code is FRAUD_SUSPECTED, the Hard Decline Rule prunes all automated retries and customer contacts.
-   - **LinUCB Boundary:** The system routes to ESCALATE with LinUCB exploration bonus strictly equal to **B = 0.0** and estimation method heuristic.
+   - **Policy Engine Pruning:** Because the failure code is FRAUD_SUSPECTED, hard policy rules prohibit RETRY and ESCALATE under active case conditions.
+   - **Decision Engine:** The Decision Engine evaluates the remaining permitted actions and selects PAYMENT_UPDATE based on the highest valid score. Unsafe messages failing validation requirements are rejected.
 
 ---
 

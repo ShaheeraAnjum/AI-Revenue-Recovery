@@ -80,9 +80,9 @@ python demo/cli.py all
 ```
 
 ### C. Demonstration Scenarios Available
-1. **Scenario A:** Standard Insufficient Funds (Auto-Retry & Settlement)
+1. **Scenario A:** Standard Insufficient Funds (Payment Recovery & Settlement)
 2. **Scenario B:** Card Expired (Constrained Messaging & Update)
-3. **Scenario C:** Fraud Suspected (Hard Policy Decline & Escalation)
+3. **Scenario C:** Fraud Suspected (Hard Policy Decline & Risk Protection)
 4. **Scenario D:** Contact Fatigue Capping (Dynamic Wait Cost)
 5. **Scenario E:** Negative Sequence Value (Terminal STOP Action)
 6. **Scenario F:** Post-Settlement Chargeback (Reconciliation Invalidation)

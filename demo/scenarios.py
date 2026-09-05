@@ -32,9 +32,9 @@ class DemoScenario:
 DEMO_SCENARIOS: Dict[str, DemoScenario] = {
     "scenario_a": DemoScenario(
         scenario_id="scenario_a",
-        name="Scenario A: Standard Insufficient Funds (Auto-Retry & Settlement)",
+        name="Scenario A: Standard Insufficient Funds (Payment Recovery & Settlement)",
         category="Happy Path Recovery",
-        description="A loyal high-value subscriber encounters a soft decline. The Decision Engine computes LinUCB exploration bonus and two-step Q2, selects RETRY. Executor executes provisional retry, holding in IN_OBSERVATION. After window, settlement is ledger-confirmed to mark RESOLVED_RECOVERED.",
+        description="A loyal high-value subscriber encounters a soft decline. The Decision Engine evaluates policy-allowed actions using two-step Q2 sequence value and the LinUCB exploration bonus, selecting PAYMENT_UPDATE as the highest-scoring action. The Executor performs the action provisionally, holding the case in IN_OBSERVATION. After the observation window, settlement is ledger-confirmed and the case becomes RESOLVED_RECOVERED.",
         event=PaymentFailureEvent(
             event_id="EVT-DEMO-01",
             customer_id="CUST-DEMO-01",
@@ -55,7 +55,7 @@ DEMO_SCENARIOS: Dict[str, DemoScenario] = {
             opt_in_sms=True,
         ),
         candidate_actions=None,
-        expected_selected_action=ActionType.RETRY,
+        expected_selected_action=ActionType.PAYMENT_UPDATE,
         reconciliation_data=ReconciliationData(
             reconciliation_reference="REC-SETTLED-01",
             settlement_confirmed=True,
@@ -93,9 +93,9 @@ DEMO_SCENARIOS: Dict[str, DemoScenario] = {
     ),
     "scenario_c": DemoScenario(
         scenario_id="scenario_c",
-        name="Scenario C: Fraud Suspected (Hard Policy Decline & Escalation)",
+        name="Scenario C: Fraud Suspected (Hard Policy Decline & Risk Protection)",
         category="Risk & Policy Protection",
-        description="A transaction is flagged with FRAUD_SUSPECTED. Hard decline policy rules prune RETRY and automated contacts. Decision Engine routes to ESCALATE with strictly zero LinUCB exploration bonus.",
+        description="A transaction is flagged with FRAUD_SUSPECTED. Hard policy rules prohibit RETRY and ESCALATE under the current case conditions. The Decision Engine evaluates the remaining permitted actions and selects PAYMENT_UPDATE based on the highest valid score. The constrained messaging layer rejects unsafe messaging when validation requirements are not satisfied.",
         event=PaymentFailureEvent(
             event_id="EVT-DEMO-03",
             customer_id="CUST-DEMO-03",

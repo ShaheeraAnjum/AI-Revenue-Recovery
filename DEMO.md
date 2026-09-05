@@ -34,9 +34,9 @@ python demo/cli.py all
 
 | Scenario Key | Scenario Name | Architectural Boundary Demonstrated | Expected Action & Outcome |
 |---|---|---|---|
-| `scenario_a` | **Standard Insufficient Funds** | Soft decline with LinUCB exploration bonus and two-step horizon scoring. | Selected: `RETRY`. Execution `SUCCESS` -> `IN_OBSERVATION`. Settlement confirmed -> `RESOLVED_RECOVERED`. |
+| `scenario_a` | **Standard Insufficient Funds** | Soft decline evaluated via two-step horizon scoring and LinUCB exploration. | Selected: `PAYMENT_UPDATE`. Execution `SUCCESS` -> `IN_OBSERVATION`. Settlement confirmed -> `RESOLVED_RECOVERED`. |
 | `scenario_b` | **Card Expired** | Policy blocks retries. Downstream constrained messaging with verified body facts. | Selected: `PAYMENT_UPDATE`. Validated email generated and delivered. |
-| `scenario_c` | **Suspected Fraud / Hard Decline** | Hard decline policy rule prunes automated retries. LinUCB exploration is zeroed for escalation. | Selected: `ESCALATE` (B=0.0). Handled via risk escalation. |
+| `scenario_c` | **Suspected Fraud / Hard Decline** | Hard policy rules prohibit RETRY and ESCALATE under active case conditions. | Selected: `PAYMENT_UPDATE` (highest valid permitted score). Unsafe messages rejected. |
 | `scenario_d` | **Contact Fatigue Limit** | Customer contact frequency limit reached. Dynamic wait cost calculated (C_wait). | Selected: `WAIT`. Holding cost dynamically evaluated. |
 | `scenario_e` | **Negative Sequence Value (STOP)** | Interventions produce negative expected return; baseline Q(STOP)=0.0 wins. | Selected: `STOP`. Transition to `RESOLVED_UNRECOVERABLE`. |
 | `scenario_f` | **Post-Settlement Chargeback** | Initial execution success followed by downstream bank chargeback dispute. | Reconciled to `RESOLVED_UNRECOVERABLE`. |
