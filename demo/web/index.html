@@ -49,9 +49,16 @@
 </head>
 <body>
     <header>
-        <h1>AI Revenue Recovery</h1>
-        <div class="subtitle">AI-Powered Payment Revenue Recovery with Deterministic Decisioning & Safety Guardrails</div>
-        <div style="font-size: 0.82rem; color: var(--text-dim); margin-top: 4px;">Contextual LinUCB • Two-Step Value Horizon • Policy Guardrails • Idempotent Execution • Settlement Verification</div>
+        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+            <div>
+                <h1>AI Revenue Recovery</h1>
+                <div class="subtitle">AI-Powered Payment Revenue Recovery with Deterministic Decisioning & Safety Guardrails</div>
+                <div style="font-size: 0.82rem; color: var(--text-dim); margin-top: 4px;">Contextual LinUCB • Two-Step Value Horizon • Policy Guardrails • Idempotent Execution • Settlement Verification</div>
+            </div>
+            <div style="background: #21262d; border: 1px solid var(--border); padding: 6px 12px; border-radius: 6px; font-size: 0.78rem; font-weight: 700; color: var(--warning); letter-spacing: 0.5px;">
+                SIMULATED — NO LIVE PAYMENTS
+            </div>
+        </div>
     </header>
 
     <div class="disclaimer-banner">
@@ -117,6 +124,28 @@
                 </div>
                 <p id="scenario-desc" style="font-size: 0.9rem; color: var(--text); margin-bottom: 16px;">Select a scenario on the left.</p>
 
+                <!-- How the Decision Was Made: Visual Flow -->
+                <div style="background: #0d1117; border: 1px solid var(--border); border-radius: 6px; padding: 12px 14px; margin-bottom: 16px;">
+                    <div style="font-size: 0.75rem; font-weight: 700; color: var(--text-dim); text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.5px;">
+                        How the Decision Was Made (Deterministic Pipeline Flow)
+                    </div>
+                    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; font-size: 0.8rem;">
+                        <span class="badge" style="background:#21262d; border: 1px solid var(--border); color: var(--text);">Payment Failure</span>
+                        <span style="color: var(--text-dim);">→</span>
+                        <span class="badge badge-warning">Policy Filter</span>
+                        <span style="color: var(--text-dim);">→</span>
+                        <span class="badge" style="background:#21262d; border: 1px solid var(--border); color: var(--text);">Allowed Actions</span>
+                        <span style="color: var(--text-dim);">→</span>
+                        <span class="badge badge-accent">Q2 + LinUCB Scoring</span>
+                        <span style="color: var(--text-dim);">→</span>
+                        <span class="badge" style="background: #1f6feb44; border: 1px solid var(--accent); color: var(--text-heading); font-weight: 700;" id="flow-action">Selected Action</span>
+                        <span style="color: var(--text-dim);">→</span>
+                        <span class="badge" style="background:#21262d; border: 1px solid var(--border); color: var(--text);">Provisional Execution</span>
+                        <span style="color: var(--text-dim);">→</span>
+                        <span class="badge badge-success" id="flow-outcome">Settlement Verification</span>
+                    </div>
+                </div>
+
                 <!-- Stage 1: Policy Filtering -->
                 <div class="stage-pill" style="border-left-color: #d29922;">
                     <strong>Stage 1: Pre-Decision Policy Filtering</strong>
@@ -145,6 +174,17 @@
                         <tr><td colspan="6" style="text-align: center; color: var(--text-dim);">No scoring data loaded</td></tr>
                     </tbody>
                 </table>
+
+                <!-- Why This Action? Box -->
+                <div style="background: #131d2e; border: 1px solid #1f6feb66; border-radius: 6px; padding: 12px 14px; margin-top: 14px; margin-bottom: 14px;">
+                    <div style="font-size: 0.82rem; font-weight: 700; color: var(--accent); margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+                        <span>💡 Why This Action?</span>
+                        <span id="why-action-title" style="color: var(--text-heading); font-weight: 600;">-</span>
+                    </div>
+                    <div id="why-action-text" style="font-size: 0.86rem; color: var(--text); line-height: 1.5;">
+                        Explanation loading...
+                    </div>
+                </div>
 
                 <!-- Stage 3: Execution & Observation -->
                 <div class="stage-pill" style="border-left-color: #a371f7; margin-top: 18px;">
@@ -242,6 +282,16 @@
             } else {
                 outcomeEl.style.color = 'var(--warning)';
             }
+
+            // Visual Decision Flow updates
+            document.getElementById('flow-action').innerText = d.decision.selected_action || 'NO_ACTION';
+            const flowOutcome = document.getElementById('flow-outcome');
+            flowOutcome.innerText = finalOutcome;
+            flowOutcome.className = finalOutcome === 'RESOLVED_RECOVERED' ? 'badge badge-success' : (finalOutcome === 'RESOLVED_UNRECOVERABLE' ? 'badge badge-danger' : 'badge badge-warning');
+
+            // Why This Action section
+            document.getElementById('why-action-title').innerText = d.decision.selected_action ? `(Selected: ${d.decision.selected_action})` : '(No Action)';
+            document.getElementById('why-action-text').innerText = d.scenario.why_action || 'Optimal action evaluated using policy constraints and sequence value calculations.';
 
             // Policy
             document.getElementById('policy-allowed').innerText = d.policy.allowed_actions.join(', ') || 'None';

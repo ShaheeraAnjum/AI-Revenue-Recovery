@@ -135,6 +135,7 @@ class DemoRequestHandler(BaseHTTPRequestHandler):
                 "name": sc.name,
                 "category": sc.category,
                 "description": sc.description,
+                "why_action": sc.why_action,
             },
             "case": {
                 "case_id": case.case_id,

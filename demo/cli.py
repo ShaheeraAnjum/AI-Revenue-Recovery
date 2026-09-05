@@ -64,6 +64,7 @@ def run_scenario(scenario: DemoScenario):
     print(f"   Selected Action:    {cycle.selected_action.value if cycle.selected_action else 'None'}")
     print(f"   Idempotency Key:    {cycle.idempotency_key}")
     print(f"   Decision ID:        {cycle.decision_id}")
+    print(f"   Why This Action?    {scenario.why_action}")
 
     if cycle.execution_result:
         print(f"\n5. IDEMPOTENT EXECUTION & OBSERVATION:")
